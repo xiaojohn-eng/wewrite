@@ -21,11 +21,16 @@ python3 toolkit/cli.py gallery                                  # Browse all 16 
 python3 toolkit/cli.py themes                                   # List theme names
 python3 toolkit/cli.py image-post img1.jpg img2.jpg -t "标题"   # Image post (carousel)
 
+# Scoring and diagnostics
+python3 scripts/humanness_score.py article.md --verbose         # AI detection scoring (11 checks, 0-1 continuous)
+python3 scripts/humanness_score.py article.md --json --tier3 0.7  # With agent Tier 3 score
+python3 scripts/diagnose.py                                      # Anti-AI config diagnostic
+python3 scripts/diagnose.py --json                               # JSON output for agent
+
 # Data collection scripts
 python3 scripts/fetch_hotspots.py --limit 20                   # Trending topics
 python3 scripts/seo_keywords.py --json "关键词1" "关键词2"      # SEO keyword analysis
 python3 scripts/fetch_stats.py <article_id>                     # WeChat article stats
-python3 scripts/humanness_score.py article.md --verbose         # AI detection scoring (11 checks)
 
 # Build OpenClaw-compatible skill (also runs in CI on push to main)
 python3 scripts/build_openclaw.py
@@ -37,32 +42,40 @@ No formal test suite exists. CI only rebuilds the OpenClaw version on push to ma
 
 ### Dual Nature: Skill + Toolkit
 
-- **As a skill** (SKILL.md): An agent-orchestrated 8-step pipeline. The LLM reads SKILL.md and executes steps, calling Python scripts as tools. Reference docs in `references/` are loaded on-demand by the agent at specific steps.
+- **As a skill** (SKILL.md): An agent-orchestrated 8-step pipeline with TaskCreate progress tracking. The LLM reads SKILL.md and executes steps, calling Python scripts as tools. Reference docs in `references/` are loaded on-demand by the agent at specific steps.
 - **As a standalone toolkit** (`toolkit/cli.py`): A Python CLI for Markdown→WeChat HTML conversion and publishing, usable independently of the skill.
+
+### Anti-AI Detection System
+
+Three-tier approach aligned with how detectors work (defined in `references/writing-guide.md`):
+- **Tier 1 Statistical** (rules 1.1-1.6): Sentence variance, vocabulary richness, paragraph rhythm, emotion polarity, adverb density, style drift. Counters perplexity/burstiness detection.
+- **Tier 2 Linguistic** (rules 2.1-2.4): Banned words, broken sentences, unexpected words, coherence breaking. Counters syntax/vocabulary fingerprinting.
+- **Tier 3 Content** (rules 3.1-3.4): Real data anchoring, specificity, density waves, dimension randomization. Counters semantic analysis.
+
+`scripts/humanness_score.py` implements Tier 1+2 programmatically (11 checks, continuous 0-1 scores). Tier 3 is done by the agent in SKILL.md Step 5.3. Each check maps to a `writing-config.yaml` parameter via the `param` field in JSON output.
+
+### Self-Learning Flywheel
+
+- **Scoring feedback**: Step 5.3 scores each article → Step 8.1 records `composite_score` + `writing_config_snapshot` to `history.yaml` → Step 4.1 reads historical best params for next article.
+- **Edit learning**: `scripts/learn_edits.py` captures typed patterns (key/type/description/rule) with confidence scoring and 30-day decay → `playbook.md` stores rules as structured YAML → Step 4.3 applies rules gated by confidence (≥5 hard constraint, <5 soft reference, <2 pruned).
+- **Parameter optimization**: "优化参数" auxiliary function in SKILL.md runs agent-driven iterative loop (write test article → score → adjust lowest params → repeat).
 
 ### Key Directories
 
-- `scripts/` — Data collection utilities (hotspots, SEO, stats) and build tools. Called by the agent during pipeline execution.
-- `toolkit/` — Markdown→WeChat HTML converter, theme engine, WeChat API client, image generation. The CLI entry point is `toolkit/cli.py`.
-- `personas/` — 5 YAML writing personality presets controlling tone, data presentation, emotional arc. Loaded in Step 4b.
-- `references/` — Agent-loaded docs (writing rules, frameworks, SEO, topic scoring). These are NOT code — they are instruction sets the LLM reads and follows.
-- `toolkit/themes/` — 16 YAML theme definitions. Parsed by `toolkit/theme.py`, applied as inline CSS by `toolkit/converter.py`.
-
-### Formatting Pipeline (toolkit)
-
-`converter.py` is the core: Markdown → HTML with inline styles + WeChat compatibility fixes (CJK spacing, bold punctuation, list→section conversion, external links→footnotes, dark mode attributes). WeChat strips `<style>` tags, so all CSS must be inlined. Themes are YAML files defining colors and base CSS; `theme.py` parses them, `converter.py` applies them.
-
-### OpenClaw Compatibility
-
-`scripts/build_openclaw.py` transforms SKILL.md for OpenClaw: replaces `{skill_dir}` with `{baseDir}`, renames tool references (WebSearch→web_search, etc.), copies referenced files. CI runs this on push to main and commits to `dist/openclaw/`.
+- `scripts/` — Scoring, diagnostics, data collection, and build tools.
+- `toolkit/` — Markdown→WeChat HTML converter, theme engine, WeChat API client, image generation. CLI entry point: `toolkit/cli.py`.
+- `personas/` — 5 YAML writing personality presets controlling tone, data presentation, emotional arc.
+- `references/` — Agent-loaded instruction docs (writing rules, frameworks, SEO, topic scoring). NOT code.
+- `toolkit/themes/` — 16 YAML theme definitions, applied as inline CSS.
 
 ### Configuration Files
 
 - `config.yaml` (from `config.example.yaml`) — WeChat API credentials + image API key. Missing → graceful degradation (skip_publish, skip_image_gen).
 - `style.yaml` (from `style.example.yaml`) — User's writing profile (name, topics, tone, persona, theme). Auto-created via onboard flow on first run.
-- `writing-config.yaml` (from `writing-config.example.yaml`) — Writing parameters (sentence variance, idiom density, etc.). Optimized per-user via the "优化参数" auxiliary function in SKILL.md.
+- `writing-config.yaml` (from `writing-config.example.yaml`) — Writing parameters mapped to anti-AI rules. Optimized per-user via "优化参数" auxiliary function.
+- `playbook.md` — Structured YAML rules learned from user edits, with confidence scores and decay.
 
-All three are .gitignored — each user generates their own.
+All four are .gitignored — each user generates their own.
 
 ### Graceful Degradation
 
@@ -71,5 +84,7 @@ The pipeline never hard-fails. Missing config → skip_publish/skip_image_gen fl
 ## Language & Conventions
 
 - All code is Python 3.11+. No type checking or linter configured.
-- Commit messages are in Chinese, format: `type: description` (e.g., `fix: ...`, `chore: ...`).
+- Commit messages use format: `type: description` (e.g., `fix: ...`, `feat: ...`, `chore: ...`).
 - The project language (README, SKILL.md, comments, references) is Chinese.
+- SKILL.md sub-steps use `X.Y` numbering (e.g., 1.1, 4.3, 5.2).
+- VERSION file tracks releases. Bump on user-facing changes.
