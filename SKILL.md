@@ -177,7 +177,7 @@ WebSearch: "{选题关键词} 数据 报告 2025 2026"
 读取: {skill_dir}/references/seo-rules.md
 ```
 
-**5a. SEO**：3 个备选标题 + 摘要（≤54 字）+ 5 标签 + 关键词密度优化
+**5a. SEO**：3 个备选标题 + 摘要（≤40 字）+ 5 标签 + 关键词密度优化
 
 **5b. 去 AI 逐层验证**（writing-guide.md 自检清单，每项必须通过）：
 
@@ -237,11 +237,9 @@ WebSearch: "{选题关键词} 数据 报告 2025 2026"
 
 Converter 自动处理：CJK 加空格、加粗标点外移、列表转 section、外链转脚注、暗黑模式、容器语法。
 
-**重要**：必须用 `--digest` 传入 Step 5 生成的摘要，否则 cli.py 会截取文章开头作为摘要，导致分享卡片显示不佳。
-
 ```bash
 # 发布
-python3 {skill_dir}/toolkit/cli.py publish {markdown} --cover {cover} --theme {theme} --title "{title}" --digest "{Step 5 生成的摘要}"
+python3 {skill_dir}/toolkit/cli.py publish {markdown} --cover {cover} --theme {theme} --title "{title}" --digest "{digest}"
 
 # 降级：本地预览
 python3 {skill_dir}/toolkit/cli.py preview {markdown} --theme {theme} --no-open -o {output}.html
