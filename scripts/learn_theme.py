@@ -158,32 +158,40 @@ _BROWSER_UA = (
 )
 
 
+def _attach_title(soup, content) -> None:
+    """Find the article title in *soup* and stash it on *content*."""
+    title_tag = soup.find("h1", class_="rich_media_title") or soup.find(
+        "h1", id="activity-name"
+    )
+    content._wewrite_title = title_tag.get_text(strip=True) if title_tag else ""
+
+
 def fetch_article(url: str, timeout: int = 20) -> "BeautifulSoup tag":
     """Fetch a WeChat article, return the ``#js_content`` element.
 
     The article title is attached as ``content._wewrite_title`` (empty string
-    if not found).  Exits with code 1 if ``#js_content`` is absent.
+    if not found).  Exits with code 1 on network errors or missing content.
 
     Parameters
     ----------
     url:     WeChat article URL (mp.weixin.qq.com/…)
     timeout: HTTP request timeout in seconds (default 20).
     """
-    resp = requests.get(url, headers={"User-Agent": _BROWSER_UA}, timeout=timeout)
+    try:
+        resp = requests.get(url, headers={"User-Agent": _BROWSER_UA}, timeout=timeout)
+        resp.raise_for_status()
+    except requests.exceptions.RequestException as exc:
+        print(f"Error: failed to fetch URL: {exc}", file=sys.stderr)
+        sys.exit(1)
     resp.encoding = "utf-8"
     soup = BeautifulSoup(resp.text, "html.parser")
 
     content = soup.find(id="js_content")
     if content is None:
-        print("Error: #js_content not found in the fetched page.", file=sys.stderr)
+        print("Error: #js_content not found — the page may require verification.", file=sys.stderr)
         sys.exit(1)
 
-    title_tag = soup.find("h1", class_="rich_media_title") or soup.find(
-        "h1", id="activity-name"
-    )
-    content._wewrite_title = (
-        title_tag.get_text(strip=True) if title_tag else ""
-    )
+    _attach_title(soup, content)
     return content
 
 
@@ -270,14 +278,13 @@ def analyze_styles(grouped: dict) -> dict:
         result["text"] = rgb_to_hex(raw_text)
 
     # --- text_light ------------------------------------------------------------
-    # Collect ALL colours from every element, look for grays in lightness 0.15-0.85
+    # Collect foreground colours only (not backgrounds) for text_light candidates
     all_colors = []
     for tag_styles in grouped.values():
         for d in tag_styles:
-            for prop in ("color", "background-color", "background"):
-                val = d.get(prop)
-                if val:
-                    all_colors.append(rgb_to_hex(val))
+            val = d.get("color")
+            if val:
+                all_colors.append(rgb_to_hex(val))
 
     text_light_candidates = [
         c for c in all_colors
@@ -445,10 +452,7 @@ def _load_from_file(path: str):
     if content is None:
         print(f"Error: #js_content not found in {path}", file=sys.stderr)
         sys.exit(1)
-    title_tag = soup.find("h1", class_="rich_media_title") or soup.find(
-        "h1", id="activity-name"
-    )
-    content._wewrite_title = title_tag.get_text(strip=True) if title_tag else ""
+    _attach_title(soup, content)
     return content
 
 
